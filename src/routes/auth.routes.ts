@@ -9,6 +9,7 @@ import {
   registerUser,
 } from "../controllers/auth.controller.ts";
 import { authenticate } from "../middleware/authenticate.ts";
+import { authRateLimiter } from "../middleware/authRateLimiter.ts";
 import { validateBody } from "../middleware/validate.ts";
 import {
   errorSchema,
@@ -25,11 +26,18 @@ import {
 
 const router = Router();
 
+router.use(authRateLimiter);
+
 router.post("/register", validateBody(registerSchema), registerUser);
 router.post("/login", validateBody(loginSchema), loginUser);
 router.post("/refresh", validateBody(refreshSchema), refreshTokens);
 router.post("/logout", authenticate, logoutUser);
 router.get("/me", authenticate, getMe);
+
+const rateLimitResponse = {
+  description: "Too many requests",
+  content: { "application/json": { schema: errorSchema } },
+};
 
 const authResponseSchema = z.object({
   user: publicUserSchema,
@@ -60,6 +68,7 @@ registry.registerPath({
       description: "Username or email already taken",
       content: { "application/json": { schema: errorSchema } },
     },
+    429: rateLimitResponse,
   },
 });
 
@@ -82,6 +91,7 @@ registry.registerPath({
       description: "Invalid credentials",
       content: { "application/json": { schema: errorSchema } },
     },
+    429: rateLimitResponse,
   },
 });
 
@@ -104,6 +114,7 @@ registry.registerPath({
       description: "Invalid or expired refresh token",
       content: { "application/json": { schema: errorSchema } },
     },
+    429: rateLimitResponse,
   },
 });
 
@@ -119,6 +130,7 @@ registry.registerPath({
       description: "Unauthorized",
       content: { "application/json": { schema: errorSchema } },
     },
+    429: rateLimitResponse,
   },
 });
 
@@ -137,6 +149,7 @@ registry.registerPath({
       description: "Unauthorized",
       content: { "application/json": { schema: errorSchema } },
     },
+    429: rateLimitResponse,
   },
 });
 

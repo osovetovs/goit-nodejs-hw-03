@@ -1,16 +1,54 @@
 import "dotenv/config";
 
 import cookieParser from "cookie-parser";
+import cors, { type CorsOptions } from "cors";
 import express from "express";
 import type { NextFunction, Request, Response } from "express";
+import helmet from "helmet";
+import createHttpError from "http-errors";
+import { pinoHttp } from "pino-http";
 import swaggerUi from "swagger-ui-express";
 
+import logger from "./src/logger.ts";
+import { generateOpenApiDocument } from "./src/openapi.ts";
 import announcementsRoutes from "./src/routes/announcements.routes.ts";
 import authRoutes from "./src/routes/auth.routes.ts";
-import { generateOpenApiDocument } from "./src/openapi.ts";
 
 const app = express();
 
+const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const corsOptions: CorsOptions = {
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(createHttpError(403, "Origin not allowed"));
+  },
+};
+
+app.use(pinoHttp({ logger }));
+
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:", "https:"],
+        fontSrc: ["'self'", "data:"],
+        connectSrc: ["'self'"],
+      },
+    },
+  }),
+);
+
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(cookieParser());
 
@@ -25,7 +63,7 @@ app.use((_req: Request, res: Response) => {
 });
 
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-  console.error(err);
+  logger.error({ err }, "Request failed");
 
   if (err.type === "entity.parse.failed") {
     return res.status(400).json({
@@ -52,12 +90,12 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     return res.status(400).json({ error: "Foreign key constraint failed" });
   }
 
-  res.status(500).json({ error: "Internal server error" });
+  return res.status(500).json({ error: "Internal server error" });
 });
 
 const PORT = Number(process.env.PORT) || 3000;
 
 app.listen(PORT, () => {
-  console.log(`Server is running at http://localhost:${PORT}`);
-  console.log(`Swagger UI: http://localhost:${PORT}/api-docs`);
+  logger.info({ port: PORT }, `Server is running at http://localhost:${PORT}`);
+  logger.info(`Swagger UI: http://localhost:${PORT}/api-docs`);
 });

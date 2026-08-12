@@ -1,7 +1,15 @@
 node_modules
+
 # Keep environment variables out of version control
 .env
 
 /generated/prisma
 *.db
 *.db-journal
+
+# Multer temporary uploads: keep the directory, never commit uploaded files
+uploads/*
+!uploads/.gitkeep
+
+# Test output
+coverage/
