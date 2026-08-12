@@ -9,8 +9,9 @@ import {
   updateAnnouncement,
 } from "../controllers/announcements.controller.ts";
 import { authenticate } from "../middleware/authenticate.ts";
+import { uploadAnnouncementImage } from "../middleware/upload.ts";
 import {
-  validateBody,
+  validateMultipartBody,
   validateParams,
   validateQuery,
 } from "../middleware/validate.ts";
@@ -28,25 +29,37 @@ import {
 
 const router = Router();
 
-router.get("/", validateQuery(announcementsQuerySchema), listAnnouncements);
+router.get(
+  "/",
+  validateQuery(announcementsQuerySchema),
+  listAnnouncements,
+);
+
 router.get(
   "/:id",
   validateParams(announcementIdParamsSchema),
   getAnnouncementById,
 );
+
 router.post(
   "/",
   authenticate,
-  validateBody(announcementCreateSchema),
+  uploadAnnouncementImage,
+  validateMultipartBody(announcementCreateSchema),
   createAnnouncement,
 );
+
 router.patch(
   "/:id",
   authenticate,
   validateParams(announcementIdParamsSchema),
-  validateBody(announcementUpdateSchema),
+  uploadAnnouncementImage,
+  validateMultipartBody(announcementUpdateSchema, {
+    requireBodyOrFile: true,
+  }),
   updateAnnouncement,
 );
+
 router.delete(
   "/:id",
   authenticate,
@@ -54,7 +67,58 @@ router.delete(
   deleteAnnouncement,
 );
 
-const idParam = z.string().regex(/^\d+$/).openapi({ example: "1" });
+const idParam = z
+  .string()
+  .regex(/^\d+$/)
+  .openapi({
+    example: "1",
+  });
+
+const imageFieldSchema = z.string().openapi({
+  type: "string",
+  format: "binary",
+  description: "Optional announcement image",
+});
+
+const announcementMultipartCreateSchema = z.object({
+  title: z
+    .string()
+    .min(5)
+    .max(50)
+    .openapi({
+      example: "Bike for sale",
+    }),
+
+  description: z
+    .string()
+    .min(10)
+    .openapi({
+      example: "Trek bike in excellent condition",
+    }),
+
+  price: z
+    .number()
+    .positive()
+    .openapi({
+      example: 8500,
+    }),
+
+  category: z
+    .enum(["sale", "service", "job", "other"])
+    .openapi({
+      example: "sale",
+    }),
+
+  image: imageFieldSchema.optional(),
+});
+
+const announcementMultipartUpdateSchema = z.object({
+  title: z.string().min(5).max(50).optional(),
+  description: z.string().min(10).optional(),
+  price: z.number().positive().optional(),
+  category: z.enum(["sale", "service", "job", "other"]).optional(),
+  image: imageFieldSchema.optional(),
+});
 
 registry.registerPath({
   method: "get",
@@ -83,7 +147,11 @@ registry.registerPath({
     },
     400: {
       description: "Validation failed",
-      content: { "application/json": { schema: errorSchema } },
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
     },
   },
 });
@@ -93,15 +161,27 @@ registry.registerPath({
   path: "/announcements/{id}",
   tags: ["Announcements"],
   summary: "Get announcement by ID",
-  request: { params: z.object({ id: idParam }) },
+  request: {
+    params: z.object({
+      id: idParam,
+    }),
+  },
   responses: {
     200: {
       description: "Announcement",
-      content: { "application/json": { schema: announcementSchema } },
+      content: {
+        "application/json": {
+          schema: announcementSchema,
+        },
+      },
     },
     404: {
       description: "Announcement not found",
-      content: { "application/json": { schema: errorSchema } },
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
     },
   },
 });
@@ -110,25 +190,45 @@ registry.registerPath({
   method: "post",
   path: "/announcements",
   tags: ["Announcements"],
-  summary: "Create an announcement",
-  security: [{ bearerAuth: [] }],
+  summary: "Create an announcement with an optional image",
+  security: [
+    {
+      bearerAuth: [],
+    },
+  ],
   request: {
     body: {
-      content: { "application/json": { schema: announcementCreateSchema } },
+      content: {
+        "multipart/form-data": {
+          schema: announcementMultipartCreateSchema,
+        },
+      },
     },
   },
   responses: {
     201: {
       description: "Announcement created",
-      content: { "application/json": { schema: announcementSchema } },
+      content: {
+        "application/json": {
+          schema: announcementSchema,
+        },
+      },
     },
     400: {
       description: "Validation failed",
-      content: { "application/json": { schema: errorSchema } },
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
     },
     401: {
       description: "Unauthorized",
-      content: { "application/json": { schema: errorSchema } },
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
     },
   },
 });
@@ -137,26 +237,64 @@ registry.registerPath({
   method: "patch",
   path: "/announcements/{id}",
   tags: ["Announcements"],
-  summary: "Update an owned announcement",
-  security: [{ bearerAuth: [] }],
+  summary: "Update an owned announcement with an optional image",
+  security: [
+    {
+      bearerAuth: [],
+    },
+  ],
   request: {
-    params: z.object({ id: idParam }),
+    params: z.object({
+      id: idParam,
+    }),
     body: {
-      content: { "application/json": { schema: announcementUpdateSchema } },
+      content: {
+        "multipart/form-data": {
+          schema: announcementMultipartUpdateSchema,
+        },
+      },
     },
   },
   responses: {
     200: {
       description: "Announcement updated",
-      content: { "application/json": { schema: announcementSchema } },
+      content: {
+        "application/json": {
+          schema: announcementSchema,
+        },
+      },
+    },
+    400: {
+      description: "Validation failed",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
+    401: {
+      description: "Unauthorized",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
     },
     403: {
       description: "Access denied",
-      content: { "application/json": { schema: errorSchema } },
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
     },
     404: {
       description: "Announcement not found",
-      content: { "application/json": { schema: errorSchema } },
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
     },
   },
 });
@@ -166,17 +304,43 @@ registry.registerPath({
   path: "/announcements/{id}",
   tags: ["Announcements"],
   summary: "Delete an owned announcement",
-  security: [{ bearerAuth: [] }],
-  request: { params: z.object({ id: idParam }) },
+  security: [
+    {
+      bearerAuth: [],
+    },
+  ],
+  request: {
+    params: z.object({
+      id: idParam,
+    }),
+  },
   responses: {
-    204: { description: "Announcement deleted" },
+    204: {
+      description: "Announcement deleted",
+    },
+    401: {
+      description: "Unauthorized",
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
+    },
     403: {
       description: "Access denied",
-      content: { "application/json": { schema: errorSchema } },
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
     },
     404: {
       description: "Announcement not found",
-      content: { "application/json": { schema: errorSchema } },
+      content: {
+        "application/json": {
+          schema: errorSchema,
+        },
+      },
     },
   },
 });

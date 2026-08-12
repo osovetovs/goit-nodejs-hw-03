@@ -41,6 +41,7 @@ export const announcementSchema = z.object({
   description: z.string(),
   price: z.number(),
   category: z.enum(["sale", "service", "job", "other"]),
+  imageUrl: z.string().url().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   user: publicUserSchema,

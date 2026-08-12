@@ -2,6 +2,9 @@ import type { Request, Response } from "express";
 import createHttpError from "http-errors";
 
 import prisma from "../../prisma/client.ts";
+import logger from "../logger.ts";
+import { removeTempUpload } from "../middleware/upload.ts";
+import { uploadImageToCloudinary } from "../services/cloudinary.ts";
 import type {
   AnnouncementCreateInput,
   AnnouncementIdParams,
@@ -17,6 +20,7 @@ const announcementSelect = {
   description: true,
   price: true,
   category: true,
+  imageUrl: true,
   createdAt: true,
   updatedAt: true,
   user: {
@@ -81,43 +85,95 @@ export async function getAnnouncementById(req: Request, res: Response) {
 export async function createAnnouncement(req: Request, res: Response) {
   const input = req.validatedBody as AnnouncementCreateInput;
   const userId = Number(req.user?.sub);
+  const tempFilePath = req.file?.path;
 
-  const announcement = await prisma.announcement.create({
-    data: {
-      ...input,
-      userId,
-    },
-    select: announcementSelect,
-  });
+  try {
+    const imageUrl = req.file
+      ? await uploadImageToCloudinary(req.file.path)
+      : undefined;
 
-  res.status(201).json(announcement);
+    const announcement = await prisma.announcement.create({
+      data: {
+        ...input,
+        userId,
+        ...(imageUrl ? { imageUrl } : {}),
+      },
+      select: announcementSelect,
+    });
+
+    logger.info(
+      {
+        announcementId: announcement.id,
+        userId,
+      },
+      "Announcement created",
+    );
+
+    if (imageUrl) {
+      logger.info(
+        {
+          announcementId: announcement.id,
+          userId,
+          imageUrl,
+        },
+        "Announcement photo uploaded",
+      );
+    }
+
+    res.status(201).json(announcement);
+  } finally {
+    await removeTempUpload(tempFilePath);
+  }
 }
 
 export async function updateAnnouncement(req: Request, res: Response) {
   const { id } = req.validatedParams as AnnouncementIdParams;
   const input = req.validatedBody as AnnouncementUpdateInput;
   const userId = Number(req.user?.sub);
+  const tempFilePath = req.file?.path;
 
-  const existing = await prisma.announcement.findUnique({
-    where: { id },
-    select: { userId: true },
-  });
+  try {
+    const existing = await prisma.announcement.findUnique({
+      where: { id },
+      select: { userId: true },
+    });
 
-  if (!existing) {
-    throw createHttpError(404, "Announcement not found");
+    if (!existing) {
+      throw createHttpError(404, "Announcement not found");
+    }
+
+    if (existing.userId !== userId) {
+      throw createHttpError(403, "Access denied");
+    }
+
+    const imageUrl = req.file
+      ? await uploadImageToCloudinary(req.file.path)
+      : undefined;
+
+    const announcement = await prisma.announcement.update({
+      where: { id },
+      data: {
+        ...input,
+        ...(imageUrl ? { imageUrl } : {}),
+      },
+      select: announcementSelect,
+    });
+
+    if (imageUrl) {
+      logger.info(
+        {
+          announcementId: announcement.id,
+          userId,
+          imageUrl,
+        },
+        "Announcement photo uploaded",
+      );
+    }
+
+    res.status(200).json(announcement);
+  } finally {
+    await removeTempUpload(tempFilePath);
   }
-
-  if (existing.userId !== userId) {
-    throw createHttpError(403, "Access denied");
-  }
-
-  const announcement = await prisma.announcement.update({
-    where: { id },
-    data: input,
-    select: announcementSelect,
-  });
-
-  res.status(200).json(announcement);
 }
 
 export async function deleteAnnouncement(req: Request, res: Response) {
@@ -137,7 +193,9 @@ export async function deleteAnnouncement(req: Request, res: Response) {
     throw createHttpError(403, "Access denied");
   }
 
-  await prisma.announcement.delete({ where: { id } });
+  await prisma.announcement.delete({
+    where: { id },
+  });
 
   res.status(204).end();
 }

@@ -5,6 +5,7 @@ import createHttpError from "http-errors";
 import jwt from "jsonwebtoken";
 
 import prisma from "../../prisma/client.ts";
+import logger from "../logger.ts";
 import type {
   LoginInput,
   RefreshInput,
@@ -40,7 +41,10 @@ function createTokenPair(user: { id: number; username: string }) {
   const secret = getJwtSecret();
 
   const accessToken = jwt.sign(
-    { username: user.username, type: "access" },
+    {
+      username: user.username,
+      type: "access",
+    },
     secret,
     {
       subject: String(user.id),
@@ -50,7 +54,10 @@ function createTokenPair(user: { id: number; username: string }) {
   );
 
   const refreshToken = jwt.sign(
-    { username: user.username, type: "refresh" },
+    {
+      username: user.username,
+      type: "refresh",
+    },
     secret,
     {
       subject: String(user.id),
@@ -59,7 +66,10 @@ function createTokenPair(user: { id: number; username: string }) {
     },
   );
 
-  return { accessToken, refreshToken };
+  return {
+    accessToken,
+    refreshToken,
+  };
 }
 
 export async function registerUser(req: Request, res: Response) {
@@ -69,7 +79,9 @@ export async function registerUser(req: Request, res: Response) {
     where: {
       OR: [{ username: input.username }, { email: input.email }],
     },
-    select: { id: true },
+    select: {
+      id: true,
+    },
   });
 
   if (existingUser) {
@@ -98,8 +110,19 @@ export async function registerUser(req: Request, res: Response) {
       },
     });
 
-    return { user, ...tokens };
+    return {
+      user,
+      ...tokens,
+    };
   });
+
+  logger.info(
+    {
+      userId: result.user.id,
+      username: result.user.username,
+    },
+    "User registered",
+  );
 
   res.status(201).json(result);
 }
@@ -108,7 +131,9 @@ export async function loginUser(req: Request, res: Response) {
   const input = req.validatedBody as LoginInput;
 
   const user = await prisma.user.findUnique({
-    where: { username: input.username },
+    where: {
+      username: input.username,
+    },
   });
 
   const passwordMatches = user
@@ -122,11 +147,26 @@ export async function loginUser(req: Request, res: Response) {
   const tokens = createTokenPair(user);
 
   await prisma.$transaction([
-    prisma.refreshToken.deleteMany({ where: { userId: user.id } }),
+    prisma.refreshToken.deleteMany({
+      where: {
+        userId: user.id,
+      },
+    }),
     prisma.refreshToken.create({
-      data: { token: tokens.refreshToken, userId: user.id },
+      data: {
+        token: tokens.refreshToken,
+        userId: user.id,
+      },
     }),
   ]);
+
+  logger.info(
+    {
+      userId: user.id,
+      username: user.username,
+    },
+    "User logged in",
+  );
 
   const { password: _password, ...publicUser } = user;
 
@@ -163,10 +203,15 @@ export async function refreshTokens(req: Request, res: Response) {
   }
 
   const storedToken = await prisma.refreshToken.findUnique({
-    where: { token: refreshToken },
+    where: {
+      token: refreshToken,
+    },
     include: {
       user: {
-        select: { id: true, username: true },
+        select: {
+          id: true,
+          username: true,
+        },
       },
     },
   });
@@ -179,7 +224,9 @@ export async function refreshTokens(req: Request, res: Response) {
 
   await prisma.$transaction(async (tx) => {
     const deleted = await tx.refreshToken.deleteMany({
-      where: { token: refreshToken },
+      where: {
+        token: refreshToken,
+      },
     });
 
     if (deleted.count !== 1) {
@@ -200,7 +247,11 @@ export async function refreshTokens(req: Request, res: Response) {
 export async function logoutUser(req: Request, res: Response) {
   const userId = Number(req.user?.sub);
 
-  await prisma.refreshToken.deleteMany({ where: { userId } });
+  await prisma.refreshToken.deleteMany({
+    where: {
+      userId,
+    },
+  });
 
   res.status(204).end();
 }
@@ -209,7 +260,9 @@ export async function getMe(req: Request, res: Response) {
   const userId = Number(req.user?.sub);
 
   const user = await prisma.user.findUnique({
-    where: { id: userId },
+    where: {
+      id: userId,
+    },
     select: profileUserSelect,
   });
 

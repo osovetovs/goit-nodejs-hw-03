@@ -3,15 +3,11 @@ import { z } from "zod";
 export const announcementCreateSchema = z.object({
   title: z.string().trim().min(5).max(50),
   description: z.string().trim().min(10),
-  price: z.number().positive(),
+  price: z.coerce.number().positive(),
   category: z.enum(["sale", "service", "job", "other"]),
 });
 
-export const announcementUpdateSchema = announcementCreateSchema
-  .partial()
-  .refine((data) => Object.keys(data).length > 0, {
-    message: "At least one field must be provided",
-  });
+export const announcementUpdateSchema = announcementCreateSchema.partial();
 
 export const announcementIdParamsSchema = z.object({
   id: z.coerce.number().int().positive(),
